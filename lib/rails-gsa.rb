@@ -1,42 +1,42 @@
-require 'http_requestor'
+require 'httparty'
 require 'nokogiri'
 require 'json'
-
 
 module RailsGSA
 
   class NoInternetConnectionError < Exception; end
+
   def self.default_options
     @default_options ||= {:gsa_url => "",
-							:search_term => "",
-							:output => "json",
-							:access => "p",
-							:client => "default_frontend",
-							:proxystylesheet => "default_frontend",
-							:site => "default_collection",
-							:start => 0,
-							:num => 10
-						}
+			:search_term => "",
+			:output => "json",
+			:access => "p",
+			:client => "default_frontend",
+			:proxystylesheet => "default_frontend",
+			:site => "default_collection",
+			:start => 0,
+			:num => 10
+		}
   end
 
   def self.search(args = {})
-	default_options
-    @default_options.merge!(args)
-	raise ArgumentError, "GSA URL missing. Please provide valid arguments." if @default_options[:gsa_url].empty? || @default_options[:gsa_url].nil?
-	
-	@default_options[:access] = "p" unless ["p", "s", "a"].include?(@default_options[:access])
-	@default_options[:start] = 0 unless @default_options[:start].is_a?(Fixnum)
-	@default_options[:num] = 10 unless @default_options[:num].is_a?(Fixnum)
-	
-	return perform_search
+		default_options
+	  @default_options.merge!(args)
+		raise ArgumentError, "GSA URL missing. Please provide valid arguments." if @default_options[:gsa_url].empty? || @default_options[:gsa_url].nil?
+
+		@default_options[:gsa_url].chomp!("/")
+		@default_options[:access] = "p" unless ["p", "s", "a"].include?(@default_options[:access])
+		@default_options[:start] = 0 unless @default_options[:start].is_a?(Fixnum)
+		@default_options[:num] = 10 unless @default_options[:num].is_a?(Fixnum)
+
+		return perform_search
   end
 
   protected
-    def self.perform_search
-		@http =  HTTP::Requestor.new(@default_options[:gsa_url])
+
+  def self.perform_search
 		if @default_options[:output] == "json"
-			json_response = @http.post(json_search_url).body
-			response_object = JSON.parse(json_response)
+			response_object = JSON.parse(HTTParty.post(json_search_url).body)
 			return ((response_object.empty? || response_object.nil?) ? {} : response_object)
 		elsif @default_options[:output] == "xml"
 			return xml_parsed_to_search_results(xml_search_url)
@@ -44,27 +44,27 @@ module RailsGSA
 	end
 
 	def self.json_search_url
-		url = URI.escape("/cluster?q=#{@default_options[:search_term]}&coutput=json&" +
-          "access=#{@default_options[:access]}&output=xml_no_dtd&client=#{@default_options[:client]}&proxystylesheet=#{@default_options[:proxystylesheet]}&" +
-          "site=#{@default_options[:site]}&start=#{@default_options[:start]}&num=#{@default_options[:num]}"
+		url = @default_options[:gsa_url] + URI.escape("/cluster?q=#{@default_options[:search_term]}&coutput=json&" +
+      "access=#{@default_options[:access]}&output=xml_no_dtd&client=#{@default_options[:client]}&proxystylesheet=#{@default_options[:proxystylesheet]}&" +
+      "site=#{@default_options[:site]}&start=#{@default_options[:start]}&num=#{@default_options[:num]}"
     )
 		return url
 	end
-	
+
 	def self.xml_search_url
-		url = URI.escape("/search?q=#{@default_options[:search_term]}&output=xml&client=#{@default_options[:client]}&" +
-          "start=#{@default_options[:start]}&num=#{@default_options[:num]}&filter=0"
+		url = @default_options[:gsa_url] + URI.escape("/search?q=#{@default_options[:search_term]}&output=xml&client=#{@default_options[:client]}&" +
+      "start=#{@default_options[:start]}&num=#{@default_options[:num]}&filter=0"
 		)
 		return url
 	end
-	
+
 	def self.xml_parsed_to_search_results(url)
 		if url.include?("cache")
 			new_url = url+"&proxystylesheet=my_frontend"
-			return {:cached_page => @http.get(new_url).body}
+			return {:cached_page => HTTParty.get(new_url).body}
 		else
 			new_output = ""
-			output = @http.get(url).body
+			output = HTTParty.get(url).body
 			output.each_line{|line| new_output += line.chop}
 			doc = Nokogiri::XML(new_output)
 			search_result_nodes = doc.xpath('//GSP/RES')
@@ -72,7 +72,7 @@ module RailsGSA
 			all_params = {}
 			results = {}
 			results[:actual_results] = {}
-      
+
 			doc.xpath('//GSP/PARAM').each do |p|
 				case p['name']
 					when 'q'
@@ -136,7 +136,7 @@ module RailsGSA
 											case c.name
 												when 'C'
 													add_to_query = "#{c['CID']}:#{results[:actual_results][key][:link_for_title]}"
-													final_cached_url = "#{@default_options[:gsa_url]}/search?q=cache:#{add_to_query}+#{all_params[:query]}&site=#{all_params[:site]}&client=#{all_params[:client]}&output=#{all_params[:output]}&proxystylesheet=my_frontend"                          
+													final_cached_url = "#{@default_options[:gsa_url]}/search?q=cache:#{add_to_query}+#{all_params[:query]}&site=#{all_params[:site]}&client=#{all_params[:client]}&output=#{all_params[:output]}&proxystylesheet=my_frontend"
 													results[:actual_results][key][:cache_link] = final_cached_url
 													results[:actual_results][key][:size] = c['SZ']
 											end
